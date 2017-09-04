@@ -1,0 +1,11 @@
+[{
+    "modid": "webbooks",
+    "name": "WebBooks",
+    "version": "0.1",
+    "description": "Display magic content from the interwebz in a book!",
+    "authorList": [
+        "DosMike"
+    ],
+    "dependencies": [
+    ]
+}]
