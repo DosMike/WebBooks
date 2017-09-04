@@ -29,17 +29,17 @@ Example PHP showcasing the required html structure for books to load:
 
 ### Available player-data:
 
-* Name: <PlayerName>
-* UUID: <PlayerUUID>
-* World: <WorldName>/<WorldUUID>
-* Location: <X>/<Y>/<Z>
-* Connection: <IP>:<Port>/<Latency>ms
-* Joined: <LastJoined>/<FirstJoined>
-* Status: <Health>/<FoodLevel>/<Level>/<GameMode>
+* `Name: <PlayerName>`
+* `UUID: <PlayerUUID>`
+* `World: <WorldName>/<WorldUUID>`
+* `Location: <X>/<Y>/<Z>`
+* `Connection: <IP>:<Port>/<Latency>ms`
+* `Joined: <LastJoined>/<FirstJoined>`
+* `Status: <Health>/<FoodLevel>/<Level>/<GameMode>`
 
 ### User-Agent string:
 
-<MinecraftName>(<ExecutionType>/<Type>) <MinecraftVersion>/<SpongeName> <SpongeVersion>/WebBooks(webbook) <WebBooksVersion>
+`<MinecraftName>(<ExecutionType>/<Type>) <MinecraftVersion>/<SpongeName> <SpongeVersion>/WebBooks(webbook) <WebBooksVersion>`
 
 # This Plugin utilizes JSoup
 Jsoup is licensed under MIT-License
