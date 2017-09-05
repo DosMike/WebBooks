@@ -9,7 +9,7 @@ The syntax is as follows: `/<command> -s -c <url> [target]`.
 * `-s` this can not be used with `-c` as it supressed any output. Instead the website will be stored away in a physical book.<br>Links that execute server-commands will not work well with those!<br>This option requires the permission `webbooks.save`
 The base permission to use the command is `webbooks.url.command`
 
-###Config
+### Config
 
 The config file provides options to proxy the requests. This is usefull as every website will be loaded by the game-server. So going to any website will expose the ip to it. Not like you can just lookup the ip by the server-name, but it's there as a feature.<br>Keep in mind tho that any response from the web-server must happen within 3 seconds before timing out!
 
