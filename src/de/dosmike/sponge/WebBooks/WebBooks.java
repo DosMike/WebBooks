@@ -30,7 +30,7 @@ import ninja.leaping.configurate.ConfigurationNode;
 import ninja.leaping.configurate.commented.CommentedConfigurationNode;
 import ninja.leaping.configurate.loader.ConfigurationLoader;
 
-@Plugin(id="webbook", name="WebBooks", version="1.0", authors={"DosMike"})
+@Plugin(id="webbook", name="WebBooks", version="1.1", authors={"DosMike"})
 public class WebBooks {
 	private static WebBooks instance;
 	static WebBooks getInstance() {

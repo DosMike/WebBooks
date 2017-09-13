@@ -33,7 +33,7 @@ public class cmdUrl implements CommandExecutor {
 					GenericArguments.onlyOne(GenericArguments.string(Text.of("url"))),
 					GenericArguments.optional(GenericArguments.player(Text.of("target")))
 					)))
-			.permission("webbooks.url.self")
+			.permission("webbooks.url.command")
 			.executor(new cmdUrl())
 			.build();
 	}

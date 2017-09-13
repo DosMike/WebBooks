@@ -134,11 +134,24 @@ public class Website {
 		String target = elem.attr("target");
 		if (target.equalsIgnoreCase("_player")) {
 			String cmd = elem.attr("href"); if (cmd.charAt(0)!='/') cmd='/'+cmd; 
-			return new ClickActionHolder(TextActions.runCommand(cmd), Text.of(TextColors.GREEN, "Run: ", TextColors.WHITE, elem.attr("href")));
+			String perm = elem.attr("data-permission");
+			if (!perm.isEmpty())
+				return new ClickActionHolder(TextActions.executeCallback(t->{
+					if (t.hasPermission(elem.attr("data-permission")))
+						Sponge.getCommandManager().process(t, elem.attr("href"));
+					else
+						t.sendMessage(Text.of(TextColors.RED, "You do not have permission to click that link!"));
+				}), Text.of(TextColors.GREEN, (!perm.isEmpty()?"¶ ":""), "Run: ", TextColors.WHITE, elem.attr("href")));
+			else
+				return new ClickActionHolder(TextActions.runCommand(cmd), Text.of(TextColors.GREEN, "Run: ", TextColors.WHITE, elem.attr("href")));
 		} else if (target.equalsIgnoreCase("_server")) {
-			return new ClickActionHolder(TextActions.executeCallback(activator->{
-				Sponge.getCommandManager().process(Sponge.getServer().getConsole(), elem.attr("href"));
-			}), Text.of(TextColors.RED, "Server: ", TextColors.WHITE, elem.attr("href")));
+			String perm = elem.attr("data-permission");
+			return new ClickActionHolder(TextActions.executeCallback(t->{
+				if (t.hasPermission(elem.attr("data-permission")))
+					Sponge.getCommandManager().process(Sponge.getServer().getConsole(), elem.attr("href"));
+				else
+					t.sendMessage(Text.of(TextColors.RED, "You do not have permission to click that link!"));
+			}), Text.of(TextColors.RED, (!perm.isEmpty()?"¶ ":""), "Server: ", TextColors.WHITE, elem.attr("href")));
 		} else if (target.equalsIgnoreCase("_blank")) {
 			try {
 				return new ClickActionHolder(TextActions.openUrl(new URL(elem.absUrl("href"))), Text.of(TextColors.AQUA, "Extern: ", TextColors.WHITE, elem.attr("href")));
