@@ -15,7 +15,6 @@ import org.spongepowered.api.data.key.Keys;
 import org.spongepowered.api.entity.EntityTypes;
 import org.spongepowered.api.entity.Item;
 import org.spongepowered.api.entity.living.player.Player;
-import org.spongepowered.api.event.cause.Cause;
 import org.spongepowered.api.item.inventory.Inventory;
 import org.spongepowered.api.item.inventory.ItemStack;
 import org.spongepowered.api.text.Text;
@@ -60,7 +59,7 @@ public class cmdUrl implements CommandExecutor {
 							Item item = (Item)show.getLocation().getExtent().createEntity(EntityTypes.ITEM, show.getLocation().getPosition().add(0.0, 1.62, 0.0));
 							item.setCreator(show.getUniqueId());
 							item.offer(Keys.REPRESENTED_ITEM, saved.createSnapshot());
-							show.getLocation().getExtent().spawnEntity(item, Cause.builder().from(WebBooks.getInstance().BaseCause).owner(show).build());
+							show.getLocation().getExtent().spawnEntity(item);
 						}
 					});
 				});

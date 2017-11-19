@@ -66,7 +66,9 @@ public class Website {
 	
 	private static Text parseNodes(Node node) {
 		if (node instanceof TextNode) {
-			return Text.of(((TextNode) node).text());
+			return Text.of(((TextNode) node).text()
+					.replace('\u00A0', ' ') // convert &nbsp; to something minecraft can display: a regular space
+				);
 		} else if (node instanceof Element) {
 			Element elem = (Element)node;
 			Text.Builder builder = Text.builder();

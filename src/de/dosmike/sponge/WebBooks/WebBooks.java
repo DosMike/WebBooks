@@ -14,8 +14,6 @@ import org.spongepowered.api.Sponge;
 import org.spongepowered.api.config.DefaultConfig;
 import org.spongepowered.api.entity.living.player.Player;
 import org.spongepowered.api.event.Listener;
-import org.spongepowered.api.event.cause.Cause;
-import org.spongepowered.api.event.cause.NamedCause;
 import org.spongepowered.api.event.game.GameReloadEvent;
 import org.spongepowered.api.event.game.state.GameStartedServerEvent;
 import org.spongepowered.api.event.network.ClientConnectionEvent;
@@ -30,13 +28,12 @@ import ninja.leaping.configurate.ConfigurationNode;
 import ninja.leaping.configurate.commented.CommentedConfigurationNode;
 import ninja.leaping.configurate.loader.ConfigurationLoader;
 
-@Plugin(id="webbook", name="WebBooks", version="1.1", authors={"DosMike"})
+@Plugin(id="webbook", name="WebBooks", version="1.1.1", authors={"DosMike"})
 public class WebBooks {
 	private static WebBooks instance;
 	static WebBooks getInstance() {
 		return instance;
 	}
-	Cause BaseCause;
 	static String motd=null;
 	
 	@Inject
@@ -69,7 +66,6 @@ public class WebBooks {
 		PluginContainer minecraft = Sponge.getPluginManager().getPlugin(PluginManager.MINECRAFT_PLUGIN_ID).get();
 		PluginContainer sponge = Sponge.getPluginManager().getPlugin(PluginManager.SPONGE_PLUGIN_ID).get();
 		PluginContainer container = Sponge.getPluginManager().fromInstance(this).get();
-		BaseCause = Cause.of(NamedCause.of("WebBooks", container));
 		
 		Website.UserAgent = String.format("%s(%s/%s) %s/%s %s/%s(%s) %s",
 				minecraft.getName(),
