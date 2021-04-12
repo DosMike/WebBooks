@@ -1,0 +1,184 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import de.dosmike.sponge.pluginpublisher.gradle.NotifyDiscordBotTask
+import de.dosmike.sponge.pluginpublisher.gradle.PublishToGitTask
+import de.dosmike.sponge.pluginpublisher.gradle.PublishToOreTask
+import de.dosmike.sponge.pluginpublisher.tasks.TaskFunctors
+
+plugins {
+    id 'java'
+    id 'maven'
+    id 'org.spongepowered.plugin' version '0.9.0'
+    id 'com.github.johnrengelman.shadow' version '5.1.0'
+    id 'com.github.dosmike.PluginPublisher' version '1.2.3'
+}
+
+group = 'com.github.dosmike'
+
+//auto fetch version from McMod.info
+def jsonFile = file('src/main/resources/mcmod.info')
+def parsedJson = new groovy.json.JsonSlurper().parseText(jsonFile.text)
+def pluginid = parsedJson[0].modid
+if (version == 'unspecified') {
+    // jitpack will inject and expect it's own version (e.g. master-SNAPSHOT)
+    version = parsedJson[0].version
+}
+assert (pluginid instanceof String) && !((String)pluginid).isEmpty()
+println rootProject.name + ' (' + pluginid + ') version ' + version
+
+//might be static an ugly, but works and is not expected to change
+def baseArtifactName = rootProject.name+'-'+version+'.jar'
+def baseArtifactFile = file("./build/libs/${baseArtifactName}").toString()
+def fileNamePattern = ~'(?i)^(?!(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.[^.]*)?$)[^<>:\"/\\\\|?*\\x00-\\x1F]*[^<>:\"/\\\\|?*\\x00-\\x1F\\ .]$'
+assert baseArtifactName ==~ fileNamePattern
+
+def serverDir = 'G:/Sonstige/VanillaSponge/server'
+
+sourceCompatibility = 1.8 // java 8
+targetCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    maven { url "https://jitpack.io" }
+}
+
+
+dependencies {
+    compileOnly 'org.jetbrains:annotations:16.0.2'
+    compileOnly 'org.spongepowered:spongeapi:7.3+'
+    shadow 'org.jsoup:jsoup:1.13.1'
+}
+
+
+task removeOldVersions() {
+    def artifactNamePattern = ~"${rootProject.name}-[0-9]+[\\.0-9]*\\.jar"
+    delete fileTree('./build/libs').include {
+        it.file.name ==~ artifactNamePattern &&
+                it.file.name != baseArtifactName
+    }
+    if (new File(serverDir).exists())
+        delete fileTree("${serverDir}/mods").include {
+            it.file.name ==~ artifactNamePattern &&
+                    it.file.name != baseArtifactName
+        }
+}
+
+task uberJar(type:ShadowJar, group:'_Plugin', dependsOn:removeOldVersions) {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude 'META-INF/**'
+    manifest {
+        attributes('Implementation-Title': project.name,
+                'Implementation-Version': project.version)
+    }
+    configurations = [project.configurations.shadow]
+    from(sourceSets.main.resources)
+    from(sourceSets.main.output)
+    classifier = null
+}
+task pushToServer(type: Copy, group:'_Plugin', dependsOn:uberJar) {
+    if (new File(serverDir).exists()) {
+        from './build/libs'
+        into file("${serverDir}/mods")
+        include baseArtifactName
+    }
+}
+task _runServer(type: Exec,group:'_Plugin', dependsOn:pushToServer) {
+    if (new File(serverDir).exists()) {
+        workingDir file(serverDir)
+        //double cmd to detach from ide terminal
+        commandLine 'cmd', '/c', 'start', 'cmd', '/c', 'startServer.bat'
+    }
+}
+task rebuild(group:'_Plugin') {
+    dependsOn clean
+    mustRunAfter clean
+    finalizedBy uberJar
+}
+
+task z_Publish(group:'_Plugin', dependsOn:uberJar) {
+    def keyfile = file('..\\PluginPublisher\\.apikeys')
+    onlyIf { keyfile.exists() }
+    outputs.upToDateWhen {false}
+    def props, versionDesc
+    doFirst {
+        props = new Properties()
+        file('..\\PluginPublisher\\.apikeys').withInputStream {
+            props.load(it)
+        }
+        //show an input prompt
+        versionDesc = TaskFunctors.validateReleaseDescription(null, false)
+    }
+    doLast {
+        project.zPub_Git.apiKey.set    ( props.getProperty('gitkey') )
+        project.zPub_Ore.apiKey.set    ( props.getProperty('orekey') )
+        project.zPub_Discord.apiKey.set( props.getProperty('discordkey') )
+
+        project.zPub_Git.messageBody.set    ( versionDesc )
+        project.zPub_Ore.messageBody.set    ( versionDesc )
+        project.zPub_Discord.messageBody.set( versionDesc )
+    }
+}
+task zPub_Git(type: PublishToGitTask, group:'_Plugin', dependsOn: z_Publish) {
+    gitSlug.set     ( 'DosMike/WebBooks' )
+    versionTag.set  ( project.version.toString() )
+    versionName.set ( "Release Build ${project.version}" )
+    uploadAssets.set( jar.outputs.files )
+}
+task zPub_Ore(type: PublishToOreTask, group:'_Plugin', dependsOn: z_Publish) {
+    projectId.set  ( pluginid.toString() )
+    channel.set    ( 'Release' )
+    uploadAsset.set( jar.outputs.files )
+}
+task zPub_Discord(type: NotifyDiscordBotTask, group:'_Plugin', dependsOn: z_Publish) {
+    guildId.set      ( '342942444288999435' )
+    channelId.set    ( '773123574907011073' )
+    messageHeader.set( "<@&644227089993826318> Version ${version} released on Ore and GitHub" )
+    finalizedBy(TerminateDiscordBot)
+}
+z_Publish.finalizedBy(zPub_Git)
+zPub_Git.finalizedBy(zPub_Ore)
+zPub_Ore.finalizedBy(zPub_Discord)
+
+//for generating the jar
+jar {
+    manifest {
+        attributes('Implementation-Title': project.name,
+                'Implementation-Version': project.version)
+    }
+}
+
+//Rest is here in order to use this project as dependency (taken from jitpack example)
+task sourcesJar(type: Jar, dependsOn: classes) {
+    classifier = 'sources'
+    from sourceSets.main.allSource
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    classifier = 'javadoc'
+    from javadoc.destinationDir
+}
+
+artifacts {
+    archives uberJar
+    archives sourcesJar
+    archives javadocJar
+}
+
+// To specify a license in the pom:
+install {
+    repositories.mavenInstaller {
+        pom.project {
+            licenses {
+                license {
+                    name 'MIT License'
+                    url 'https://github.com/DosMike/VillagerShops/blob/master/LICENSE'
+                    distribution 'repo'
+                }
+            }
+        }
+    }
+}
+
+wrapper {
+    gradleVersion = "5.6.4"
+    distributionType = Wrapper.DistributionType.ALL
+}

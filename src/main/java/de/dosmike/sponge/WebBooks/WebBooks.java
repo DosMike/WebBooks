@@ -1,14 +1,8 @@
 package de.dosmike.sponge.WebBooks;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
-import java.net.Proxy;
-import java.net.Proxy.Type;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
-
+import com.google.inject.Inject;
+import ninja.leaping.configurate.commented.CommentedConfigurationNode;
+import ninja.leaping.configurate.loader.ConfigurationLoader;
 import org.slf4j.Logger;
 import org.spongepowered.api.Sponge;
 import org.spongepowered.api.config.DefaultConfig;
@@ -20,22 +14,28 @@ import org.spongepowered.api.event.network.ClientConnectionEvent;
 import org.spongepowered.api.plugin.Plugin;
 import org.spongepowered.api.plugin.PluginContainer;
 import org.spongepowered.api.plugin.PluginManager;
+import org.spongepowered.api.scheduler.SpongeExecutorService;
 import org.spongepowered.api.text.Text;
+import org.spongepowered.api.text.format.TextColors;
 
-import com.google.inject.Inject;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.net.MalformedURLException;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
-import ninja.leaping.configurate.ConfigurationNode;
-import ninja.leaping.configurate.commented.CommentedConfigurationNode;
-import ninja.leaping.configurate.loader.ConfigurationLoader;
-
-@Plugin(id="webbook", name="WebBooks", version="1.1.1", authors={"DosMike"})
+@Plugin(id="webbook", name="WebBooks", version="1.2", authors={"DosMike"})
 public class WebBooks {
 	private static WebBooks instance;
 	static WebBooks getInstance() {
 		return instance;
 	}
-	static String motd=null;
-	
+
+	static SpongeExecutorService executor;
+
 	@Inject
 	private Logger logger;
 	static void l(String format, Object... args) { instance.logger.info(String.format(format, args)); }
@@ -51,7 +51,7 @@ public class WebBooks {
 	}
 	@Listener
 	public void onPlayerJoin(ClientConnectionEvent.Join event) {
-		if (!motd.isEmpty()) loadUrl(motd, event.getTargetEntity(), website->{
+		if (!Configuration.motd.isEmpty()) loadUrl(Configuration.motd, event.getTargetEntity(), website->{
 			if (website.getResponseCode()==200) {
 				website.displayBook(event.getTargetEntity());
 			}
@@ -61,43 +61,38 @@ public class WebBooks {
 	@Listener
 	public void onServerStart(GameStartedServerEvent event) {
 		instance = this;
+		executor = Sponge.getScheduler().createSyncExecutor(this);
 		CommandRegistra.RegisterCommands();
 		
 		PluginContainer minecraft = Sponge.getPluginManager().getPlugin(PluginManager.MINECRAFT_PLUGIN_ID).get();
 		PluginContainer sponge = Sponge.getPluginManager().getPlugin(PluginManager.SPONGE_PLUGIN_ID).get();
 		PluginContainer container = Sponge.getPluginManager().fromInstance(this).get();
-		
-		Website.UserAgent = String.format("%s(%s/%s) %s/%s %s/%s(%s) %s",
+
+		Configuration.UserAgent = String.format("%s/%s %s/%s (%s; %s) %s/%s (%s; by DosMike)",
 				minecraft.getName(),
-				Sponge.getPlatform().getExecutionType().toString(),
-				Sponge.getPlatform().getType().toString(),
 				minecraft.getVersion().orElse("?"),
 				sponge.getName(),
 				sponge.getVersion().orElse("?"),
+				Sponge.getPlatform().getExecutionType().name(),
+				Sponge.getPlatform().getType().name(),
 				container.getName(),
-				container.getId(),
-				container.getVersion().orElse("?")
+				container.getVersion().orElse("?"),
+				container.getId()
 				);
 		
 		if (!Sponge.getConfigManager().getSharedConfig(this).getConfigPath().toFile().exists()) {
-			CommentedConfigurationNode root = configManager.createEmptyNode();
-			root.getNode("Proxy").setComment("Here you can set a HTTP-Proxy for the Game-Server to use when connecting to the Web-Server. Note: The overall delay must not exceed 3 seconds!");
-			root.getNode("Proxy", "Host").setValue("");
-			root.getNode("Proxy", "Host").setComment("Leave this value empty to disable the proxy");
-			root.getNode("Proxy", "Port").setValue(8080);
-			root.getNode("MOTD").setComment("Specify a URL here that will be displayed to every player that joins the server");
 			try {
-				configManager.save(root);
+				configManager.save(Configuration.generateDefault());
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
-		loadConfig();
+		Configuration.reload();
 	}
 	
 	@Listener
 	public void onReload(GameReloadEvent event) {
-		loadConfig();
+		Configuration.reload();
 	}
 	
 	public static void loadUrl(String url, Player player, WebsiteReadyConsumer callback) {
@@ -109,6 +104,20 @@ public class WebBooks {
 			} catch (MalformedURLException u) {
 				player.sendMessage(Text.of("Malformed URL: "+url));
 			} catch (Exception e) {
+				StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+				pw.flush();
+				pw.close();
+				String[] lines = sw.toString().split("\n");
+				if (lines.length > 5) {
+					String andMore = "... and " + (lines.length - 5) + " more lines";
+					lines = Arrays.copyOf(lines, 6);
+					lines[5] = andMore;
+				}
+				String message = String.join("\n", lines);
+				player.sendMessage(Text.of(TextColors.RED, "There was an error during execution:", Text.NEW_LINE, message));
+
 				e.printStackTrace();
 			} finally {
 				loading.remove(player.getUniqueId());
@@ -122,19 +131,6 @@ public class WebBooks {
 	
 	@Inject
 	@DefaultConfig(sharedRoot = true)
-	private ConfigurationLoader<CommentedConfigurationNode> configManager;
-	private void loadConfig() {
-		try {
-			ConfigurationNode s = configManager.load();
-			
-			String host = s.getNode("Proxy", "Host").getString("");
-			int port = s.getNode("Proxy", "Port").getInt(8080);
-			if (host.isEmpty()) Website.proxy = null;
-			else Website.proxy = new Proxy(Type.HTTP, new InetSocketAddress(host, port));
-			
-			motd = s.getNode("MOTD").getString("");
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-	}
+	ConfigurationLoader<CommentedConfigurationNode> configManager;
+
 }

@@ -1,17 +1,9 @@
 package de.dosmike.sponge.WebBooks;
 
-import java.io.IOException;
-import java.net.MalformedURLException;
-import java.net.Proxy;
-import java.net.URL;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-
+import com.google.gson.stream.JsonWriter;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
+import org.jsoup.internal.StringUtil;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
@@ -28,16 +20,16 @@ import org.spongepowered.api.text.Text;
 import org.spongepowered.api.text.action.ClickAction;
 import org.spongepowered.api.text.action.TextActions;
 import org.spongepowered.api.text.channel.MessageReceiver;
-import org.spongepowered.api.text.format.TextColor;
-import org.spongepowered.api.text.format.TextColors;
-import org.spongepowered.api.text.format.TextFormat;
-import org.spongepowered.api.text.format.TextStyle;
-import org.spongepowered.api.text.format.TextStyles;
+import org.spongepowered.api.text.format.*;
+
+import java.io.IOException;
+import java.io.StringWriter;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.*;
 
 public class Website {
-	static String UserAgent="Minecraft-Server/WebBooks unknown";
-	static Proxy proxy;
-	
+
 	static Map<String, Object> classNames = new HashMap<>();
 	static {
 		classNames.put("mc-0", TextColors.BLACK);
@@ -63,12 +55,63 @@ public class Website {
 		classNames.put("mc-o", TextStyles.ITALIC);
 		classNames.put("mc-r", TextFormat.of(TextColors.RESET, TextStyles.RESET));
 	}
-	
+
+	private static String titleAttribUnescape(String title) {
+		int index, idx2=0;
+		StringBuilder sb = new StringBuilder(title.length());
+		while ((index=title.indexOf('\\', idx2))>=0) {
+			sb.append(title, idx2, index);
+			index++; //look at the following char
+			if (index >= title.length()) break; //unless we're oob
+			if (title.charAt(index) == '\\') { // \\
+				sb.append('\\');
+			} else if (title.charAt(index) == 'n') { // \n
+				sb.append("\n");
+			} else { //invalid escapes, just print the character
+				sb.append(title.charAt(index));
+			}
+			idx2 = index+1;
+		}
+		sb.append(title.substring(idx2));
+		return sb.toString();
+	}
+
+	/**
+	 * This is mirroring the implementation of StringUtil.normalizeString used in TextNode.text()
+	 * with the difference that &amp;nbsp; is kept (using isWhitespace instead of isActualWhitespace).
+	 * This is required for rendering as normal spaces and line breaks in HTML are expected to be
+	 * normalized while &amp;nbsp; as non-breaking space has to remain!<br>
+	 * NB: because U+00A0 does not print well in MC, it is replaced with regular spaces here.
+	 * @param node the TextNode to extract coreValue from (getWholeText)
+	 * @return the normalized text value more like in jsoup pre 1.13 (i think)
+	 */
+	private static String legacyText(TextNode node) {
+		String text = node.getWholeText();
+		StringBuilder sb = new StringBuilder(text.length());
+		boolean lastWasWhite = false;
+
+		int len = text.length();
+		int c;
+		for (int i = 0; i < len; i+= Character.charCount(c)) {
+			c = text.codePointAt(i);
+			if (StringUtil.isWhitespace(c)) {
+				if (lastWasWhite)
+					continue;
+				sb.append(' ');
+				lastWasWhite = true;
+			} else if (c == '\u00A0') {
+				sb.append(' ');
+			} else if (!StringUtil.isInvisibleChar(c)) {
+				sb.appendCodePoint(c);
+				lastWasWhite = false;
+			}
+		}
+		return sb.toString();
+	}
+
 	private static Text parseNodes(Node node) {
 		if (node instanceof TextNode) {
-			return Text.of(((TextNode) node).text()
-					.replace('\u00A0', ' ') // convert &nbsp; to something minecraft can display: a regular space
-				);
+			return Text.of(legacyText((TextNode) node));
 		} else if (node instanceof Element) {
 			Element elem = (Element)node;
 			Text.Builder builder = Text.builder();
@@ -86,7 +129,8 @@ public class Website {
 				builder.format(builder.getFormat().style(TextStyles.UNDERLINE).color(TextColors.DARK_AQUA));
 				ClickActionHolder action = buildLinkAction(elem);
 				builder.onClick(action.getAction());
-				hoverText.add(action.getHoverText());
+				if (!elem.hasAttr("data-title-hide-href") && Configuration.extendedTooltips)
+					hoverText.add(action.getHoverText());
 				break;
 			default: break;
 			}
@@ -103,7 +147,7 @@ public class Website {
 				});
 			}
 			if (elem.hasAttr("title")) {
-				hoverText.add(0, Text.of(elem.attr("title")));
+				hoverText.add(0, Text.of(titleAttribUnescape(elem.attr("title"))));
 			}
 			
 			if (!hoverText.isEmpty()) {
@@ -123,8 +167,8 @@ public class Website {
 		} else return Text.EMPTY; //unknown node type, probably comment
 	}
 	private static class ClickActionHolder {
-		private ClickAction<?> action;
-		private Text text;
+		private final ClickAction<?> action;
+		private final Text text;
 		public ClickActionHolder(ClickAction<?> action, Text linkHover) {
 			this.action=action;
 			this.text=linkHover;
@@ -135,25 +179,48 @@ public class Website {
 	private static ClickActionHolder buildLinkAction(Element elem) {
 		String target = elem.attr("target");
 		if (target.equalsIgnoreCase("_player")) {
-			String cmd = elem.attr("href"); if (cmd.charAt(0)!='/') cmd='/'+cmd; 
+			String cmd,cmdVis;
+			if (elem.attr("href").isEmpty()) throw new IllegalArgumentException("href can't be empty for target=\"_player\"");
+			if (elem.attr("href").charAt(0)=='/') {
+				cmdVis = elem.attr("href");
+				cmd = cmdVis.substring(1);
+			} else {
+				cmd = elem.attr("href");
+				cmdVis = '/'+cmd;
+			}
+
 			String perm = elem.attr("data-permission");
 			if (!perm.isEmpty())
 				return new ClickActionHolder(TextActions.executeCallback(t->{
 					if (t.hasPermission(elem.attr("data-permission")))
-						Sponge.getCommandManager().process(t, elem.attr("href"));
+						Sponge.getCommandManager().process(t, cmd);
 					else
 						t.sendMessage(Text.of(TextColors.RED, "You do not have permission to click that link!"));
-				}), Text.of(TextColors.GREEN, (!perm.isEmpty()?"� ":""), "Run: ", TextColors.WHITE, elem.attr("href")));
+				}), Text.of(TextColors.GREEN, "� Run: ", TextColors.WHITE, cmdVis));
 			else
-				return new ClickActionHolder(TextActions.runCommand(cmd), Text.of(TextColors.GREEN, "Run: ", TextColors.WHITE, elem.attr("href")));
+				return new ClickActionHolder(TextActions.runCommand(cmdVis), Text.of(TextColors.GREEN, "Run: ", TextColors.WHITE, cmdVis));
 		} else if (target.equalsIgnoreCase("_server")) {
+			String cmd,cmdVis;
+			if (elem.attr("href").isEmpty()) throw new IllegalArgumentException("href can't be empty for target=\"_player\"");
+			if (elem.attr("href").charAt(0)=='/') {
+				cmdVis = elem.attr("href");
+				cmd = cmdVis.substring(1);
+			} else {
+				cmd = elem.attr("href");
+				cmdVis = '/'+cmd;
+			}
 			String perm = elem.attr("data-permission");
-			return new ClickActionHolder(TextActions.executeCallback(t->{
-				if (t.hasPermission(elem.attr("data-permission")))
-					Sponge.getCommandManager().process(Sponge.getServer().getConsole(), elem.attr("href"));
-				else
-					t.sendMessage(Text.of(TextColors.RED, "You do not have permission to click that link!"));
-			}), Text.of(TextColors.RED, (!perm.isEmpty()?"� ":""), "Server: ", TextColors.WHITE, elem.attr("href")));
+			if (!perm.isEmpty())
+				return new ClickActionHolder(TextActions.executeCallback(t->{
+					if (t.hasPermission(elem.attr("data-permission")))
+						Sponge.getCommandManager().process(Sponge.getServer().getConsole(), cmd);
+					else
+						t.sendMessage(Text.of(TextColors.RED, "You do not have permission to click that link!"));
+				}), Text.of(TextColors.RED, "� Server: ", TextColors.WHITE, cmdVis));
+			else
+				return new ClickActionHolder(TextActions.executeCallback(
+						t->Sponge.getCommandManager().process(Sponge.getServer().getConsole(), cmd)),
+						Text.of(TextColors.RED, "Server: ", TextColors.WHITE, cmdVis));
 		} else if (target.equalsIgnoreCase("_blank")) {
 			try {
 				return new ClickActionHolder(TextActions.openUrl(new URL(elem.absUrl("href"))), Text.of(TextColors.AQUA, "Extern: ", TextColors.WHITE, elem.attr("href")));
@@ -175,22 +242,97 @@ public class Website {
 	
 	static Website fromUrl(String url, Player player) throws MalformedURLException, IOException {
 		Connection con = Jsoup.connect(url).timeout(3000);
-		con.header("User-Agent", UserAgent);
-		if (proxy != null) con.proxy(proxy);
+		con.header("User-Agent", Configuration.UserAgent);
+		if (Configuration.proxy != null) con.proxy(Configuration.proxy);
+		con.followRedirects(true);
+		Locale playerLocale = player.getLocale();
+		Locale serverLocale = Sponge.getServer().getConsole().getLocale();
+		con.header("Accept-Language",
+				playerLocale.getLanguage()+"-"+playerLocale.getCountry()+", " +
+				playerLocale.getLanguage()+";q=0.9, " +
+				serverLocale.getLanguage()+";q=0.8, " +
+				"*;q=0.5"
+				);
+
+		Document doc;
+		if (Configuration.transportMethod.equalsIgnoreCase("get/header"))
+			doc = sendPlayerInfo_Header(con, player);
+		else if (Configuration.transportMethod.equalsIgnoreCase("post/formdata"))
+			doc = sendPlayerInfo_PostFormData(con, player);
+		else
+			doc = sendPlayerInfo_PostJson(con, player);
+		return parseDocument(doc, con.response().statusCode(), con.response().headers());
+	}
+	static Website fromHtml(String html, String baseUrl, Player player) {
+		return parseDocument(Jsoup.parse(html, baseUrl), 200, new HashMap<>());
+	}
+
+	static Document sendPlayerInfo_PostFormData(Connection con, Player player) throws IOException {
+		con.header("Content-Type", "application/x-www-form-urlencoded");
 		con.data("Name", player.getName());
 		con.data("UUID", player.getUniqueId().toString());
 		con.data("World", player.getLocation().getExtent().getName() + "/" + player.getLocation().getExtent().getUniqueId().toString());
 		con.data("Location", player.getLocation().getX()+"/"+player.getLocation().getY()+"/"+player.getLocation().getZ());
 		con.data("Connection", player.getConnection().getAddress().getHostString()+":"+player.getConnection().getAddress().getPort()+"/"+ player.getConnection().getLatency()+"ms");
 		con.data("Joined", player.getJoinData().lastPlayed().get().toEpochMilli()+"/"+player.getJoinData().firstPlayed().get().toEpochMilli());
-		con.data("Status", player.get(Keys.HEALTH).orElse(-1.0)+"/"+player.get(Keys.FOOD_LEVEL).orElse(-1)+"/"+player.get(Keys.EXPERIENCE_LEVEL).orElse(-1)+"/"+player.get(Keys.GAME_MODE).orElse(GameModes.NOT_SET).toString());
-		con.followRedirects(true);
-		Document doc = con.post();
-		return parseDocument(doc, con.response().statusCode(), con.response().headers());
+		con.data("Status", player.get(Keys.HEALTH).orElse(-1.0)+"/"+player.get(Keys.FOOD_LEVEL).orElse(-1)+"/"+player.get(Keys.EXPERIENCE_LEVEL).orElse(-1)+"/"+player.get(Keys.GAME_MODE).orElse(GameModes.NOT_SET).getName());
+		return con.post();
 	}
-	static Website fromHtml(String html, String baseUrl, Player player) {
-		return parseDocument(Jsoup.parse(html, baseUrl), 200, new HashMap<>());
+	static Document sendPlayerInfo_Header(Connection con, Player player) throws IOException {
+		con.header("X-WebBook-User", player.getName() + "; " + player.getUniqueId().toString());
+		con.header("X-WebBook-World", player.getLocation().getExtent().getName() + "; " + player.getLocation().getExtent().getUniqueId().toString());
+		con.header("X-WebBook-Location", player.getLocation().getX()+"; "+player.getLocation().getY()+"; "+player.getLocation().getZ());
+		con.header("X-WebBook-Connection", player.getConnection().getAddress().getHostString()+":"+player.getConnection().getAddress().getPort()+"; "+ player.getConnection().getLatency()+"ms");
+		con.header("X-WebBook-Joined", player.getJoinData().lastPlayed().get().toEpochMilli()+"; "+player.getJoinData().firstPlayed().get().toEpochMilli());
+		con.header("X-WebBook-Status", player.get(Keys.HEALTH).orElse(-1.0)+"; "+player.get(Keys.FOOD_LEVEL).orElse(-1)+"; "+player.get(Keys.EXPERIENCE_LEVEL).orElse(-1)+"; "+player.get(Keys.GAME_MODE).orElse(GameModes.NOT_SET).getName());
+		return con.get();
 	}
+	static Document sendPlayerInfo_PostJson(Connection con, Player player) throws IOException {
+		StringWriter sw = new StringWriter(1024);
+		JsonWriter jw = new JsonWriter(sw);
+		con.header("Content-Type", "application/json");
+		jw.beginObject();
+		jw.name("subject").beginObject();
+		{
+			jw.name("name").value(player.getName());
+			jw.name("uuid").value(player.getUniqueId().toString());
+			jw.name("health").value(player.get(Keys.HEALTH).orElse(Double.NaN));
+			jw.name("foodLevel").value(player.get(Keys.FOOD_LEVEL).map(Double::valueOf).orElse(Double.NaN));
+			jw.name("expLevel").value(player.get(Keys.EXPERIENCE_LEVEL).map(Double::valueOf).orElse(Double.NaN));
+			jw.name("gameMode").value(player.get(Keys.GAME_MODE).orElse(GameModes.NOT_SET).getName());
+		}
+		jw.endObject();
+		jw.name("location").beginObject();
+		{
+			jw.name("world").beginObject();
+			jw.name("name").value(player.getLocation().getExtent().getName());
+			jw.name("uuid").value(player.getLocation().getExtent().getUniqueId().toString());
+			jw.endObject();
+			jw.name("position").beginObject();
+			jw.name("x").value(player.getLocation().getPosition().getX());
+			jw.name("y").value(player.getLocation().getPosition().getY());
+			jw.name("z").value(player.getLocation().getPosition().getZ());
+			jw.endObject();
+		}
+		jw.endObject();
+		jw.name("connection").beginObject();
+		{
+			jw.name("ip").value(player.getConnection().getAddress().getHostString());
+			jw.name("port").value(player.getConnection().getAddress().getPort());
+			jw.name("latency").value(player.getConnection().getLatency());
+			jw.name("joined").beginObject();
+			jw.name("first").value(player.getJoinData().firstPlayed().get().toString());
+			jw.name("last").value(player.getJoinData().lastPlayed().get().toString());
+			jw.endObject();
+		}
+		jw.endObject();
+		jw.endObject();
+		jw.flush();
+		jw.close();
+		con.requestBody(sw.toString());
+		return con.post();
+	}
+
 	private static Website parseDocument(Document doc, int rc, Map<String, String> headers) {
 		Website website = new Website();
 		website.url = doc.baseUri();
@@ -199,14 +341,10 @@ public class Website {
 		Element title = doc.getElementsByTag("title").first();
 		if (title != null) website.title = Text.of(title.text());
 		else website.title=Text.of("Unnamed");
-		
-		doc.getElementsByTag("ul").forEach(list->{
-			if (list.classNames().contains("book")) {
-				list.children().forEach(item->{
-					website.pages.add(parseNodes(item));
-				});
-			}
-		});
+
+		doc.select(Configuration.pageSelector).forEach(item->
+			website.pages.add(parseNodes(item))
+		);
 		
 		return website;
 	}
@@ -241,8 +379,8 @@ public class Website {
 	public Text getTitle() {
 		return title;
 	}
-	/** All declared pages on this website, where pages are children of the first &lt;ul&gt; element with class book.<br>
-	 * The JavaScript equivalent for selecting Pages would be <pre>document.querySelector("ul.book").children();</pre>
+	/** All declared pages on this website, where pages are picked with the selector from the configuration.<br>
+	 * The default value '<code><tt>ul.book li</tt></code>' would extract <code><tt>document.querySelectorAll("ul.book li")</tt></code>
 	 * @return A collection of Text, each representing a page. */
 	public Collection<Text> getPages() { return pages; }
 	/** Show this website to a player wrapped in a bookview.
@@ -262,14 +400,21 @@ public class Website {
 			.build()
 			.sendTo(receiver);
 	}
-	
+
 	/** Turns this website object into a signed book that can be opened over and over again, without
 	 * any delay and no matter if the source website is available... how usefull :D
 	 * @return An ItemStack containing 1 Book with all pages
 	 */
 	public ItemStack save() {
+		return save(Configuration.defaultAuthor);
+	}
+	/** Turns this website object into a signed book that can be opened over and over again, without
+	 * any delay and no matter if the source website is available... how usefull :D
+	 * @return An ItemStack containing 1 Book with all pages
+	 */
+	public ItemStack save(Text author) {
 		ItemStack stack = ItemStack.builder().itemType(ItemTypes.WRITTEN_BOOK).quantity(1).build();
-		stack.offer(Keys.BOOK_AUTHOR, Text.of(TextColors.DARK_AQUA, "Saved Website"));
+		stack.offer(Keys.BOOK_AUTHOR, author);
 		stack.offer(Keys.BOOK_PAGES, pages);
 		stack.offer(Keys.DISPLAY_NAME, title);
 		return stack;
