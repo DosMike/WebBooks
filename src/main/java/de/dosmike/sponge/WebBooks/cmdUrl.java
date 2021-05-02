@@ -1,65 +1,91 @@
 package de.dosmike.sponge.WebBooks;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.spongepowered.api.Sponge;
-import org.spongepowered.api.command.CommandException;
+import org.spongepowered.api.command.Command;
+import org.spongepowered.api.command.CommandExecutor;
 import org.spongepowered.api.command.CommandResult;
-import org.spongepowered.api.command.CommandSource;
-import org.spongepowered.api.command.args.CommandContext;
-import org.spongepowered.api.command.args.GenericArguments;
-import org.spongepowered.api.command.spec.CommandExecutor;
-import org.spongepowered.api.command.spec.CommandSpec;
-import org.spongepowered.api.data.key.Keys;
+import org.spongepowered.api.command.exception.CommandException;
+import org.spongepowered.api.command.parameter.CommandContext;
+import org.spongepowered.api.command.parameter.Parameter;
+import org.spongepowered.api.command.parameter.managed.Flag;
+import org.spongepowered.api.data.Keys;
 import org.spongepowered.api.entity.EntityTypes;
 import org.spongepowered.api.entity.Item;
-import org.spongepowered.api.entity.living.player.Player;
-import org.spongepowered.api.item.inventory.Inventory;
+import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.item.inventory.ItemStack;
+import org.spongepowered.api.item.inventory.transaction.InventoryTransactionResult;
 import org.spongepowered.api.service.permission.Subject;
-import org.spongepowered.api.text.Text;
-import org.spongepowered.api.text.format.TextColors;
-import org.spongepowered.api.text.serializer.TextSerializers;
 
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.*;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class cmdUrl implements CommandExecutor {
-	
-	public static CommandSpec getCommandSpec() {
-		 return CommandSpec.builder()
-			.description(Text.of("Open a magic book from the mystical interwebz"))
-			.extendedDescription(Text.of("Load a website with a max timeout of 3 seconds.\n -c will display the website in the chat instead of as a book\n -s will save the website in the target's inventory\n   Option c will not work with option s as this will supress all output"))
-			.arguments(
-					GenericArguments.flags().flag("c")
-					.permissionFlag(Permissions.SAVE, "s")
-					.valueFlag(GenericArguments.requiringPermission(GenericArguments.string(Text.of("author")), Permissions.AUTHOR), "a")
-					.buildWith(GenericArguments.seq(
-					GenericArguments.onlyOne(GenericArguments.string(Text.of("url"))),
-					GenericArguments.optional(GenericArguments.player(Text.of("target")))
-					)))
-			.permission(Permissions.COMMAND)
-			.executor(new cmdUrl())
-			.build();
+
+	private static Parameter.Value<Component> FLAG_AUTHOR_PARAM_AUTHOR;
+	private static Parameter.Value<URL> PARAM_URL;
+	private static Parameter.Value<ServerPlayer> PARAM_TARGET;
+	private static Flag FLAG_CONSOLE;
+	private static Flag FLAG_SAVE;
+	private static Flag FLAG_AUTHOR;
+	private static boolean init = false;
+
+	public static Command.Parameterized getCommandSpec() {
+		if (!init) {
+			init=true;
+			FLAG_AUTHOR_PARAM_AUTHOR = Parameter.formattingCodeText()
+					.key("author")
+					.build();
+			PARAM_URL = Parameter.url()
+					.key("url")
+					.terminal().build();
+			PARAM_TARGET = Parameter.player()
+					.key("target")
+					.requiredPermission(Permissions.TARGET)
+					.optional().build();
+			FLAG_CONSOLE = Flag.builder()
+					.alias("c")
+					.build();
+			FLAG_SAVE = Flag.builder()
+					.alias("s")
+					.setPermission(Permissions.SAVE)
+					.build();
+			FLAG_AUTHOR = Flag.builder()
+					.alias("a")
+					.setPermission(Permissions.AUTHOR)
+					.setParameter(FLAG_AUTHOR_PARAM_AUTHOR)
+					.build();
+		}
+
+		return Command.builder()
+				.shortDescription(Component.text("Open a magic book from the mystical interwebz"))
+				.extendedDescription(Component.text("Load a website with a max timeout of 3 seconds.\n -c will display the website in the chat instead of as a book\n -s will save the website in the target's inventory\n   Option c will not work with option s as this will supress all output"))
+				.addFlag(FLAG_CONSOLE)
+				.addFlag(FLAG_SAVE)
+				.addFlag(FLAG_AUTHOR)
+				.addParameter(PARAM_URL)
+				.addParameter(PARAM_TARGET)
+				.permission(Permissions.COMMAND)
+				.executor(new cmdUrl())
+				.build();
 	}
 
-	private void printBook(String url, Player target, Text author) {
-		UUID uuid = target.getUniqueId();
+	private void printBook(URL url, ServerPlayer target, Component author) {
+		UUID uuid = target.uniqueId();
 		WebBooks.loadUrl(url, target, website->
 			WebBooks.executor.execute(()->
-				Sponge.getServer().getPlayer(uuid).ifPresent(show-> {
+				Sponge.server().player(uuid).ifPresent(show-> {
 					ItemStack saved = website.save(author);
-					Iterator<Inventory> playerInventory = show.getInventory().iterator();
-					if (playerInventory.next().offer(saved).getRejectedItems().isEmpty()); //try to add the item into the hotbar, consume on success
-					else if (!playerInventory.next().offer(saved).getRejectedItems().isEmpty()) { //if the second inventory (main inventory) can't hold the item, drop it
-						Item item = (Item)show.getLocation().getExtent().createEntity(EntityTypes.ITEM, show.getLocation().getPosition().add(0.0, 1.62, 0.0));
-						item.setCreator(show.getUniqueId());
-						item.offer(Keys.REPRESENTED_ITEM, saved.createSnapshot());
-						show.getLocation().getExtent().spawnEntity(item);
+					InventoryTransactionResult result = show.inventory().offer(saved);
+					if (!result.rejectedItems().isEmpty()) {
+						Item item = show.location().world().createEntity(EntityTypes.ITEM, show.location().position().add(0.0, 1.62, 0.0));
+						item.offer(Keys.CREATOR, uuid);
+						item.offer(Keys.ITEM_STACK_SNAPSHOT, saved.createSnapshot());
+						show.location().world().spawnEntity(item);
 					}
 				})
 			)
@@ -67,53 +93,54 @@ public class cmdUrl implements CommandExecutor {
 	}
 
 	private static final Pattern ippat = Pattern.compile("(\\d+\\.\\d+\\.\\d+\\.\\d+)|(\\[([0-9a-fA-F]{2})?(:([0-9a-fA-F]{2})?)+\\])");
-	boolean checkDomain(String url, Subject subject) {
-		try {
-			String host = new URI(url).getHost();
-			if (ippat.matcher(host).matches()) return false; //ips are not allowed
-			//reverse domain
-			String[] parts = host.split("\\.");
-			StringBuilder perm = new StringBuilder(Permissions.DOMAIN_BASE);
-			for (int i = parts.length-1; i>=0; i--) perm.append(".").append(parts[i].toLowerCase(Locale.ROOT));
-			return subject.hasPermission(perm.toString());
-		} catch (URISyntaxException e) {
-			return false;
-		}
+	boolean checkDomain(URL url, Subject subject) {
+		String host = url.getHost();
+		if (ippat.matcher(host).matches()) return false; //ips are not allowed
+		//reverse domain
+		String[] parts = host.split("\\.");
+		StringBuilder perm = new StringBuilder(Permissions.DOMAIN_BASE);
+		for (int i = parts.length-1; i>=0; i--) perm.append(".").append(parts[i].toLowerCase(Locale.ROOT));
+		return subject.hasPermission(perm.toString());
 	}
 
-	private Supplier<Player> playerRef(Player player) {
-		UUID uuid = player.getUniqueId();
-		return ()->Sponge.getServer().getPlayer(uuid).orElseThrow(()->new RuntimeException("Player "+ uuid +" left the server"));
+	private Supplier<ServerPlayer> playerRef(ServerPlayer player) {
+		UUID uuid = player.uniqueId();
+		return ()->Sponge.server().player(uuid).orElseThrow(()->new RuntimeException("Player "+ uuid +" left the server"));
 	}
 
 	@Override
-	public CommandResult execute(CommandSource src, CommandContext args) throws CommandException {
+	public CommandResult execute(CommandContext args) throws CommandException {
 
-		String url = args.<String>getOne("url").get();
+		URL url = args.requireOne(PARAM_URL);
 		
-		Player target = args.<Player>getOne("target").orElseGet(()->src instanceof Player ? (Player)src : null);
+		ServerPlayer target = args.one(PARAM_TARGET).orElseGet(()->
+				args.cause().root() instanceof ServerPlayer
+				? (ServerPlayer)args.cause().root()
+				: null);
 		if (target == null) {
-			throw new CommandException(Text.of(TextColors.RED, "Console can't do this"));
+			throw new CommandException(Component.text("Console can't do this", NamedTextColor.RED));
 		}
-		if (!src.equals(target)) args.checkPermission(src, Permissions.TARGET);
 
 		if (!checkDomain(url, target)) {
-			throw new CommandException(Text.of(TextColors.RED, "The specified URI was invalid or blocked"));
+			throw new CommandException(Component.text("The specified URI was invalid or blocked", NamedTextColor.RED));
 		}
-		Supplier<Player> show = playerRef(target);
+		Supplier<ServerPlayer> show = playerRef(target);
 
 		try {
-			Text author = args.<String>getOne(Text.of("author"))
-					.map(TextSerializers.FORMATTING_CODE::deserialize)
+			Component author = args.one(FLAG_AUTHOR_PARAM_AUTHOR)
 					.orElse(Configuration.defaultAuthor);
-			if (args.hasAny("s")) {
+			if (args.hasFlag(FLAG_SAVE)) {
 				printBook(url, target, author);
-			} else if (args.hasAny("c"))
+			} else if (args.hasFlag(FLAG_CONSOLE))
 				WebBooks.loadUrl(url, target, website -> website.displayChat(show.get()));
 			else
 				WebBooks.loadUrl(url, target, website -> website.displayBook(show.get()));
 		} catch (IllegalStateException exception) {
-			src.sendMessage(Text.of("Hold on, already loading a website for ", target.getName() ,"..."));
+			args.sendMessage(target, Component.text()
+					.content("Hold on, already loading a website for ")
+					.append(target.displayName().get())
+					.append(Component.text("..."))
+					.build());
 		}
 		return CommandResult.success();
 	}

@@ -3,27 +3,44 @@ import de.dosmike.sponge.pluginpublisher.gradle.NotifyDiscordBotTask
 import de.dosmike.sponge.pluginpublisher.gradle.PublishToGitTask
 import de.dosmike.sponge.pluginpublisher.gradle.PublishToOreTask
 import de.dosmike.sponge.pluginpublisher.tasks.TaskFunctors
+import org.spongepowered.gradle.plugin.config.PluginLoaders
+import org.spongepowered.plugin.metadata.PluginDependency
 
 plugins {
     id 'java'
-    id 'maven'
-    id 'org.spongepowered.plugin' version '0.9.0'
+//    id 'maven'
+    id 'org.spongepowered.gradle.plugin' version '1.0.+'
     id 'com.github.johnrengelman.shadow' version '5.1.0'
     id 'com.github.dosmike.PluginPublisher' version '1.2.3'
 }
 
 group = 'com.github.dosmike'
 
-//auto fetch version from McMod.info
-def jsonFile = file('src/main/resources/mcmod.info')
-def parsedJson = new groovy.json.JsonSlurper().parseText(jsonFile.text)
-def pluginid = parsedJson[0].modid
-if (version == 'unspecified') {
-    // jitpack will inject and expect it's own version (e.g. master-SNAPSHOT)
-    version = parsedJson[0].version
-}
+def pluginid = 'webbook'
+version = '1.2'
+
+//sanity
 assert (pluginid instanceof String) && !((String)pluginid).isEmpty()
-println rootProject.name + ' (' + pluginid + ') version ' + version
+assert (version instanceof String) && !((String)version).isEmpty()
+println project.name + ' (' + pluginid + ') version ' + project.version
+
+sponge {
+    apiVersion( '8.0.0' )
+    plugin(pluginid) {
+        loader( PluginLoaders.JAVA_PLAIN )
+        displayName( project.name )
+        version( project.version )
+        mainClass( 'de.dosmike.sponge.WebBooks.WebBooks' )
+        description( 'Display magic content from the interwebz in a book!' )
+        contributor( 'DosMike' ) {
+            description( 'Lead Developer' )
+        }
+        dependency( 'spongeapi' ) {
+            loadOrder( PluginDependency.LoadOrder.AFTER )
+            optional( false )
+        }
+    }
+}
 
 //might be static an ugly, but works and is not expected to change
 def baseArtifactName = rootProject.name+'-'+version+'.jar'
@@ -31,7 +48,7 @@ def baseArtifactFile = file("./build/libs/${baseArtifactName}").toString()
 def fileNamePattern = ~'(?i)^(?!(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.[^.]*)?$)[^<>:\"/\\\\|?*\\x00-\\x1F]*[^<>:\"/\\\\|?*\\x00-\\x1F\\ .]$'
 assert baseArtifactName ==~ fileNamePattern
 
-def serverDir = 'G:/Sonstige/VanillaSponge/server'
+def serverDir = 'G:/Sonstige/VanillaSponge/server8'
 
 sourceCompatibility = 1.8 // java 8
 targetCompatibility = 1.8
@@ -44,7 +61,7 @@ repositories {
 
 dependencies {
     compileOnly 'org.jetbrains:annotations:16.0.2'
-    compileOnly 'org.spongepowered:spongeapi:7.3+'
+    compileOnly 'org.spongepowered:spongeapi:8.+'
     shadow 'org.jsoup:jsoup:1.13.1'
 }
 
@@ -147,38 +164,38 @@ jar {
 }
 
 //Rest is here in order to use this project as dependency (taken from jitpack example)
-task sourcesJar(type: Jar, dependsOn: classes) {
-    classifier = 'sources'
-    from sourceSets.main.allSource
-}
-
-task javadocJar(type: Jar, dependsOn: javadoc) {
-    classifier = 'javadoc'
-    from javadoc.destinationDir
-}
-
-artifacts {
-    archives uberJar
-    archives sourcesJar
-    archives javadocJar
-}
-
-// To specify a license in the pom:
-install {
-    repositories.mavenInstaller {
-        pom.project {
-            licenses {
-                license {
-                    name 'MIT License'
-                    url 'https://github.com/DosMike/VillagerShops/blob/master/LICENSE'
-                    distribution 'repo'
-                }
-            }
-        }
-    }
-}
+//task sourcesJar(type: Jar, dependsOn: classes) {
+//    classifier = 'sources'
+//    from sourceSets.main.allSource
+//}
+//
+//task javadocJar(type: Jar, dependsOn: javadoc) {
+//    classifier = 'javadoc'
+//    from javadoc.destinationDir
+//}
+//
+//artifacts {
+//    archives uberJar
+//    archives sourcesJar
+//    archives javadocJar
+//}
+//
+//// To specify a license in the pom:
+//install {
+//    repositories.mavenInstaller {
+//        pom.project {
+//            licenses {
+//                license {
+//                    name 'MIT License'
+//                    url 'https://github.com/DosMike/VillagerShops/blob/master/LICENSE'
+//                    distribution 'repo'
+//                }
+//            }
+//        }
+//    }
+//}
 
 wrapper {
-    gradleVersion = "5.6.4"
+    gradleVersion = "7.0"
     distributionType = Wrapper.DistributionType.ALL
 }

@@ -1,86 +1,105 @@
 package de.dosmike.sponge.WebBooks;
 
 import com.google.inject.Inject;
-import ninja.leaping.configurate.commented.CommentedConfigurationNode;
-import ninja.leaping.configurate.loader.ConfigurationLoader;
-import org.slf4j.Logger;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import org.apache.logging.log4j.Logger;
+import org.spongepowered.api.Server;
 import org.spongepowered.api.Sponge;
+import org.spongepowered.api.command.Command;
 import org.spongepowered.api.config.DefaultConfig;
-import org.spongepowered.api.entity.living.player.Player;
+import org.spongepowered.api.entity.living.player.server.ServerPlayer;
 import org.spongepowered.api.event.Listener;
-import org.spongepowered.api.event.game.GameReloadEvent;
-import org.spongepowered.api.event.game.state.GameStartedServerEvent;
-import org.spongepowered.api.event.network.ClientConnectionEvent;
-import org.spongepowered.api.plugin.Plugin;
-import org.spongepowered.api.plugin.PluginContainer;
+import org.spongepowered.api.event.lifecycle.*;
+import org.spongepowered.api.event.network.ServerSideConnectionEvent;
 import org.spongepowered.api.plugin.PluginManager;
-import org.spongepowered.api.scheduler.SpongeExecutorService;
-import org.spongepowered.api.text.Text;
-import org.spongepowered.api.text.format.TextColors;
+import org.spongepowered.api.scheduler.TaskExecutorService;
+import org.spongepowered.configurate.CommentedConfigurationNode;
+import org.spongepowered.configurate.loader.ConfigurationLoader;
+import org.spongepowered.plugin.PluginContainer;
+import org.spongepowered.plugin.jvm.Plugin;
+import org.spongepowered.plugin.metadata.PluginMetadata;
 
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
-@Plugin(id="webbook", name="WebBooks", version="1.2", authors={"DosMike"})
+@Plugin("webbook")
 public class WebBooks {
+	private final PluginContainer plugin;
+	private final Logger logger;
+
 	private static WebBooks instance;
+
 	static WebBooks getInstance() {
 		return instance;
 	}
-
-	static SpongeExecutorService executor;
+	static PluginContainer container() {
+		return instance.plugin;
+	}
 
 	@Inject
-	private Logger logger;
+	public WebBooks(final PluginContainer plugin, final Logger logger) {
+		if (WebBooks.instance != null) throw new IllegalStateException("Plugin Singleton already instantiated");
+		WebBooks.instance = this;
+		this.plugin = plugin;
+		this.logger = logger;
+	}
+	static TaskExecutorService executor;
+	static TaskExecutorService async;
+
 	static void l(String format, Object... args) { instance.logger.info(String.format(format, args)); }
 	static void w(String format, Object... args) { instance.logger.warn(String.format(format, args)); }
 	
 	static Set<UUID> loading = new HashSet<>();
-	public boolean isWebsiteLoadingFor(Player player) {
-		return loading.contains(player.getUniqueId());
+	public boolean isWebsiteLoadingFor(ServerPlayer player) {
+		return loading.contains(player.uniqueId());
+	}
+
+	@Listener
+	public void onPlayerDisconnect(ServerSideConnectionEvent.Disconnect event) {
+		loading.remove(event.player().uniqueId());
 	}
 	@Listener
-	public void onPlayerDisconnect(ClientConnectionEvent.Disconnect event) {
-		loading.remove(event.getTargetEntity().getUniqueId());
-	}
-	@Listener
-	public void onPlayerJoin(ClientConnectionEvent.Join event) {
-		if (!Configuration.motd.isEmpty()) loadUrl(Configuration.motd, event.getTargetEntity(), website->{
+	public void onPlayerJoin(ServerSideConnectionEvent.Join event) {
+		if (!Configuration.motd.isEmpty()) loadUrl(Configuration.motd, event.player(), website->{
 			if (website.getResponseCode()==200) {
-				website.displayBook(event.getTargetEntity());
+				website.displayBook(event.player());
 			}
 		});
 	}
-	
+
 	@Listener
-	public void onServerStart(GameStartedServerEvent event) {
-		instance = this;
-		executor = Sponge.getScheduler().createSyncExecutor(this);
-		CommandRegistra.RegisterCommands();
-		
-		PluginContainer minecraft = Sponge.getPluginManager().getPlugin(PluginManager.MINECRAFT_PLUGIN_ID).get();
-		PluginContainer sponge = Sponge.getPluginManager().getPlugin(PluginManager.SPONGE_PLUGIN_ID).get();
-		PluginContainer container = Sponge.getPluginManager().fromInstance(this).get();
+	public void onConstructPlugin(final ConstructPluginEvent event) {
+		PluginMetadata minecraft = Sponge.pluginManager().plugin(PluginManager.MINECRAFT_PLUGIN_ID).map(PluginContainer::getMetadata).get();
+		PluginMetadata sponge = Sponge.pluginManager().plugin(PluginManager.SPONGE_PLUGIN_ID).map(PluginContainer::getMetadata).get();
+		PluginMetadata container = Sponge.pluginManager().fromInstance(this).map(PluginContainer::getMetadata).get();
 
 		Configuration.UserAgent = String.format("%s/%s %s/%s (%s; %s) %s/%s (%s; by DosMike)",
 				minecraft.getName(),
-				minecraft.getVersion().orElse("?"),
+				minecraft.getVersion(),
 				sponge.getName(),
-				sponge.getVersion().orElse("?"),
-				Sponge.getPlatform().getExecutionType().name(),
-				Sponge.getPlatform().getType().name(),
+				sponge.getVersion(),
+				Sponge.platform().executionType().name(),
+				Sponge.platform().type().name(),
 				container.getName(),
-				container.getVersion().orElse("?"),
+				container.getVersion(),
 				container.getId()
-				);
-		
-		if (!Sponge.getConfigManager().getSharedConfig(this).getConfigPath().toFile().exists()) {
+		);
+	}
+
+	@Listener
+	public void onServerStarting(final StartingEngineEvent<Server> event) {
+		executor = Sponge.asyncScheduler().createExecutor(plugin);
+		async = Sponge.asyncScheduler().createExecutor(plugin);
+
+		if (!Sponge.configManager().sharedConfig(plugin).configPath().toFile().exists()) {
 			try {
 				configManager.save(Configuration.generateDefault());
 			} catch (IOException e) {
@@ -89,20 +108,36 @@ public class WebBooks {
 		}
 		Configuration.reload();
 	}
-	
+
 	@Listener
-	public void onReload(GameReloadEvent event) {
+	public void onRegisterCommands(final RegisterCommandEvent<Command.Parameterized> event) {
+		event.register(container(), cmdUrl.getCommandSpec(), "webbook", "wbk", "url");
+	}
+
+	@Listener
+	public void onServerStopping(final StoppingEngineEvent<Server> event) {
+		async.shutdown();
+		executor.shutdown();
+	}
+
+	@Listener
+	public void onReload(RefreshGameEvent event) {
 		Configuration.reload();
 	}
-	
-	public static void loadUrl(String url, Player player, WebsiteReadyConsumer callback) {
-		if (loading.contains(player.getUniqueId())) throw new IllegalStateException("This player is already loading a website, try again in a moment");
-		loading.add(player.getUniqueId());
-		Sponge.getScheduler().createAsyncExecutor(WebBooks.getInstance()).execute(()->{
+
+	public static void loadUrl(String url, ServerPlayer player, WebsiteReadyConsumer callback) {
+		try {
+			loadUrl(new URL(url), player, callback);
+		} catch (MalformedURLException u) {
+			player.sendMessage(Component.text("Malformed URL: "+url));
+		}
+	}
+	public static void loadUrl(URL url, ServerPlayer player, WebsiteReadyConsumer callback) {
+		if (loading.contains(player.uniqueId())) throw new IllegalStateException("This player is already loading a website, try again in a moment");
+		loading.add(player.uniqueId());
+		async.execute(()->{
 			try {
 				callback.onWebsiteReady(Website.fromUrl(url, player));
-			} catch (MalformedURLException u) {
-				player.sendMessage(Text.of("Malformed URL: "+url));
 			} catch (Exception e) {
 				StringWriter sw = new StringWriter();
 				PrintWriter pw = new PrintWriter(sw);
@@ -116,16 +151,16 @@ public class WebBooks {
 					lines[5] = andMore;
 				}
 				String message = String.join("\n", lines);
-				player.sendMessage(Text.of(TextColors.RED, "There was an error during execution:", Text.NEW_LINE, message));
+				player.sendMessage(Component.text("There was an error during execution:" + Component.newline() + message, NamedTextColor.RED));
 
 				e.printStackTrace();
 			} finally {
-				loading.remove(player.getUniqueId());
+				loading.remove(player.uniqueId());
 			}
 		});
 	}
 	
-	public static Website parseHtml(String html, String baseURL, Player player) {
+	public static Website parseHtml(String html, String baseURL, ServerPlayer player) {
 		return Website.fromHtml(html, baseURL, player);
 	}
 	
