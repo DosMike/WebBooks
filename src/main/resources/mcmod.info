@@ -1,7 +1,7 @@
 [{
     "modid": "webbook",
     "name": "WebBooks",
-    "version": "1.2",
+    "version": "1.2.1",
     "description": "Display magic content from the interwebz in a book!",
     "authorList": [
         "DosMike"

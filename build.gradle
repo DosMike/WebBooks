@@ -122,6 +122,7 @@ task zPub_Git(type: PublishToGitTask, group:'_Plugin', dependsOn: z_Publish) {
     versionTag.set  ( project.version.toString() )
     versionName.set ( "Release Build ${project.version}" )
     uploadAssets.set( jar.outputs.files )
+    commitish.set   ( "API7" )
 }
 task zPub_Ore(type: PublishToOreTask, group:'_Plugin', dependsOn: z_Publish) {
     projectId.set  ( pluginid.toString() )

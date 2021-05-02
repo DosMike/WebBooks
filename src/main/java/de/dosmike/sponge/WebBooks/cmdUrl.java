@@ -1,5 +1,6 @@
 package de.dosmike.sponge.WebBooks;
 
+import org.jetbrains.annotations.NotNull;
 import org.spongepowered.api.Sponge;
 import org.spongepowered.api.command.CommandException;
 import org.spongepowered.api.command.CommandResult;
@@ -19,14 +20,13 @@ import org.spongepowered.api.text.Text;
 import org.spongepowered.api.text.format.TextColors;
 import org.spongepowered.api.text.serializer.TextSerializers;
 
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
-import java.util.*;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class cmdUrl implements CommandExecutor {
 	
@@ -86,8 +86,8 @@ public class cmdUrl implements CommandExecutor {
 		return ()->Sponge.getServer().getPlayer(uuid).orElseThrow(()->new RuntimeException("Player "+ uuid +" left the server"));
 	}
 
-	@Override
-	public CommandResult execute(CommandSource src, CommandContext args) throws CommandException {
+	@Override @NotNull
+	public CommandResult execute(@NotNull CommandSource src, CommandContext args) throws CommandException {
 
 		String url = args.<String>getOne("url").get();
 		
@@ -97,7 +97,7 @@ public class cmdUrl implements CommandExecutor {
 		}
 		if (!src.equals(target)) args.checkPermission(src, Permissions.TARGET);
 
-		if (!checkDomain(url, target)) {
+		if (!checkDomain(url, src)) {
 			throw new CommandException(Text.of(TextColors.RED, "The specified URI was invalid or blocked"));
 		}
 		Supplier<Player> show = playerRef(target);

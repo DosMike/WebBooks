@@ -27,7 +27,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
-@Plugin(id="webbook", name="WebBooks", version="1.2", authors={"DosMike"})
+@Plugin(id="webbook", name="WebBooks", version="1.2.1", authors={"DosMike"})
 public class WebBooks {
 	private static WebBooks instance;
 	static WebBooks getInstance() {
