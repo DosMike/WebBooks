@@ -112,7 +112,7 @@ public class cmdUrl implements CommandExecutor {
 	public CommandResult execute(CommandContext args) throws CommandException {
 
 		URL url = args.requireOne(PARAM_URL);
-		
+
 		ServerPlayer target = args.one(PARAM_TARGET).orElseGet(()->
 				args.cause().root() instanceof ServerPlayer
 				? (ServerPlayer)args.cause().root()
@@ -121,7 +121,7 @@ public class cmdUrl implements CommandExecutor {
 			throw new CommandException(Component.text("Console can't do this", NamedTextColor.RED));
 		}
 
-		if (!checkDomain(url, target)) {
+		if (!checkDomain(url, args.cause().subject())) {
 			throw new CommandException(Component.text("The specified URI was invalid or blocked", NamedTextColor.RED));
 		}
 		Supplier<ServerPlayer> show = playerRef(target);
